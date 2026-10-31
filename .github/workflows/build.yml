@@ -2,23 +2,56 @@ name: Build Object Info Editor for Windows
 on:
   workflow_dispatch:
   push:
+    branches: [main]
     tags: ['editor-v*']
 permissions:
   contents: read
+concurrency:
+  group: windows-build-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   build:
+    name: Build Windows executable
     runs-on: windows-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
-      - run: pip install -r requirements-build.txt
-      - run: python scripts/build.py
-      - uses: actions/upload-artifact@v4
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-build.txt
+      - name: Install build dependencies
+        run: python -m pip install -r requirements-build.txt
+      - name: Test, validate and build the executable
+        run: python scripts/build.py
+      - name: Upload the Windows download
+        id: artifact
+        uses: actions/upload-artifact@v4
         with:
           name: ObjectInfoEditor-windows
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
           path: |
             dist/ObjectInfoEditor.exe
             dist/ObjectInfoEditor.exe.sha256
             dist/README.md
+      - name: Link the download in the build summary
+        shell: pwsh
+        env:
+          ARTIFACT_URL: ${{ steps.artifact.outputs.artifact-url }}
+        run: |
+          @"
+          ## Object Info Editor for Windows
+
+          [Download ObjectInfoEditor-windows]($env:ARTIFACT_URL)
+
+          Extract the ZIP and open **ObjectInfoEditor.exe**. Python is included.
+
+          Commit: ${{ github.sha }}
+
+          SHA-256: ``$((Get-FileHash -LiteralPath dist/ObjectInfoEditor.exe -Algorithm SHA256).Hash.ToLowerInvariant())``
+          "@ | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append

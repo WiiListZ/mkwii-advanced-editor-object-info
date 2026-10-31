@@ -5,6 +5,8 @@ The shared document is **[`data/objects.json`](data/objects.json)**. Contributio
 
 ## Run
 
+Download the Windows ZIP from the latest successful [Build Object Info Editor for Windows](https://github.com/WiiListZ/mkwii-advanced-editor-object-info/actions/workflows/build.yml) run: open the run, then select **ObjectInfoEditor-windows** under **Artifacts** (or use the download link in the build summary). Extract the ZIP and open **ObjectInfoEditor.exe**. GitHub requires sign-in to download Actions artifacts; downloads are retained for 30 days and regenerated on each push to `main`.
+
 Open **`dist/ObjectInfoEditor.exe`**. The portable executable includes Python, the interface, the icon and an offline documentation snapshot; no Python installation is needed. Its working copy is saved under `%LOCALAPPDATA%\MKWii Object Info Editor\objects.json`. You can use **Open…** or **Save as…** to work elsewhere. Dropping a JSON on the executable opens that file.
 
 For the source version, install Python **3.11 or newer** and double-click **`Start.bat`**, or run:
@@ -69,6 +71,6 @@ Object selection reuses the form controls instead of rebuilding the whole interf
 
 If an older executable is running, build into another folder with `python scripts/build.py --output-dir dist/1.0.1`.
 
-The Windows build runs validation and tests, then writes the executable, SHA-256 checksum and this guide into `dist/`. GitHub Actions validates every push and pull request. A manual run of **Build Object Info Editor for Windows**, or a tag beginning with `editor-v`, produces a downloadable Windows artifact. Network contribution tests use mocks and never create real forks, commits or pull requests.
+The Windows build runs validation and tests, then writes the executable, SHA-256 checksum and this guide into `dist/`. GitHub Actions validates every push and pull request. **Build Object Info Editor for Windows** automatically generates the downloadable Windows artifact on every push to `main`, on tags beginning with `editor-v`, and when started manually with **Run workflow**. The artifact includes the portable executable, its checksum and this guide. Network contribution tests use mocks and never create real forks, commits or pull requests.
 
 The validation rules match `parseObjectDocumentation` in the main editor: 1–1000 object entries, eight setting slots, 16-bit setting values (signed where declared), valid choices and min/max bounds, and consistent documented status. Duplicate JSON keys and invalid JSON numbers are rejected rather than silently discarded.
