@@ -14,6 +14,8 @@ jobs:
     name: Build Windows executable
     runs-on: windows-latest
     timeout-minutes: 15
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -25,6 +27,12 @@ jobs:
             requirements-build.txt
       - name: Install build dependencies
         run: python -m pip install -r requirements-build.txt
+      - name: Check the version tag
+        if: startsWith(github.ref, 'refs/tags/editor-v')
+        shell: pwsh
+        run: |
+          $version = python -c "from objinfo import __version__; print(__version__)"
+          if ($env:GITHUB_REF_NAME -ne "editor-v$version") { throw "The release tag must match the editor version: editor-v$version" }
       - name: Test, validate and build the executable
         run: python scripts/build.py
       - name: Upload the Windows download
@@ -39,13 +47,56 @@ jobs:
             dist/ObjectInfoEditor.exe
             dist/ObjectInfoEditor.exe.sha256
             dist/README.md
+      - name: Publish the executable in GitHub Releases
+        id: release
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/editor-v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $isAuto = $env:GITHUB_REF_TYPE -ne 'tag'
+          $version = python -c "from objinfo import __version__; print(__version__)"
+          $tag = if ($isAuto) { 'auto' } else { $env:GITHUB_REF_NAME }
+          $title = if ($isAuto) { "Auto build ($($env:GITHUB_SHA.Substring(0, 7)))" } else { "Object Info Editor $version" }
+          $intro = if ($isAuto) { 'Automatic preview of main, replaced after each successful build.' } else { "Object Info Editor $version for Windows." }
+          @"
+          $intro
+
+          Download **ObjectInfoEditor.exe** below and open it. Python is included; no installation is needed.
+
+          Includes object documentation editing, validation, conflict-aware sync, documentation update notifications and pull request preparation.
+
+          Commit: $env:GITHUB_SHA
+
+          The SHA-256 checksum and user guide are attached too.
+          "@ | Set-Content -LiteralPath release-notes.md -Encoding utf8
+          gh release view $tag --repo $env:GITHUB_REPOSITORY *> $null
+          $exists = $LASTEXITCODE -eq 0
+          if (-not $exists) {
+            gh release create $tag --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --draft --title $title --notes-file release-notes.md
+            if ($LASTEXITCODE -ne 0) { throw 'Could not create the release draft' }
+          }
+          gh release upload $tag dist/ObjectInfoEditor.exe dist/ObjectInfoEditor.exe.sha256 dist/README.md --repo $env:GITHUB_REPOSITORY --clobber
+          if ($LASTEXITCODE -ne 0) { throw 'Could not upload the release files' }
+          if ($isAuto -and $exists) {
+            gh api --method PATCH "repos/$env:GITHUB_REPOSITORY/git/refs/tags/auto" -f "sha=$env:GITHUB_SHA" -F force=true *> $null
+            if ($LASTEXITCODE -ne 0) { throw 'Could not move the Auto tag to the built commit' }
+          }
+          $pre = $isAuto.ToString().ToLowerInvariant()
+          $latest = (-not $isAuto).ToString().ToLowerInvariant()
+          gh release edit $tag --repo $env:GITHUB_REPOSITORY --draft=false "--prerelease=$pre" "--latest=$latest" --title $title --notes-file release-notes.md
+          if ($LASTEXITCODE -ne 0) { throw 'Could not publish the release' }
+          "url=https://github.com/$env:GITHUB_REPOSITORY/releases/tag/$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
       - name: Link the download in the build summary
         shell: pwsh
         env:
           ARTIFACT_URL: ${{ steps.artifact.outputs.artifact-url }}
+          RELEASE_URL: ${{ steps.release.outputs.url }}
         run: |
           @"
           ## Object Info Editor for Windows
+
+          [Download the executable from Releases]($env:RELEASE_URL)
 
           [Download ObjectInfoEditor-windows]($env:ARTIFACT_URL)
 

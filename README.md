@@ -5,7 +5,9 @@ The shared document is **[`data/objects.json`](data/objects.json)**. Contributio
 
 ## Run
 
-Download the Windows ZIP from the latest successful [Build Object Info Editor for Windows](https://github.com/WiiListZ/mkwii-advanced-editor-object-info/actions/workflows/build.yml) run: open the run, then select **ObjectInfoEditor-windows** under **Artifacts** (or use the download link in the build summary). Extract the ZIP and open **ObjectInfoEditor.exe**. GitHub requires sign-in to download Actions artifacts; downloads are retained for 30 days and regenerated on each push to `main`.
+Download **[ObjectInfoEditor.exe from the latest release](https://github.com/WiiListZ/mkwii-advanced-editor-object-info/releases/latest/download/ObjectInfoEditor.exe)** and open it. Public release downloads do not require a GitHub login. Each release also includes the checksum and this guide. The [Auto pre-release](https://github.com/WiiListZ/mkwii-advanced-editor-object-info/releases/tag/auto) contains the most recent successful build of `main`.
+
+The Windows ZIP is also available under **Artifacts** in the [build workflow](https://github.com/WiiListZ/mkwii-advanced-editor-object-info/actions/workflows/build.yml). Artifacts require GitHub sign-in and are retained for 30 days; release assets remain available until replaced or removed.
 
 Open **`dist/ObjectInfoEditor.exe`**. The portable executable includes Python, the interface, the icon and an offline documentation snapshot; no Python installation is needed. Its working copy is saved under `%LOCALAPPDATA%\MKWii Object Info Editor\objects.json`. You can use **Open…** or **Save as…** to work elsewhere. Dropping a JSON on the executable opens that file.
 
@@ -71,6 +73,6 @@ Object selection reuses the form controls instead of rebuilding the whole interf
 
 If an older executable is running, build into another folder with `python scripts/build.py --output-dir dist/1.0.1`.
 
-The Windows build runs validation and tests, then writes the executable, SHA-256 checksum and this guide into `dist/`. GitHub Actions validates every push and pull request. **Build Object Info Editor for Windows** automatically generates the downloadable Windows artifact on every push to `main`, on tags beginning with `editor-v`, and when started manually with **Run workflow**. The artifact includes the portable executable, its checksum and this guide. Network contribution tests use mocks and never create real forks, commits or pull requests.
+The Windows build runs validation and tests, then writes the executable, SHA-256 checksum and this guide into `dist/`. GitHub Actions validates every push and pull request. **Build Object Info Editor for Windows** automatically builds on every push to `main`, on tags beginning with `editor-v`, and when started manually with **Run workflow**. Successful builds of `main` update the **Auto** pre-release. A version tag matching `objinfo.__version__` (for example, `editor-v1.0.1`) publishes a stable release. Releases contain the executable, checksum and guide; the workflow also uploads a ZIP artifact. A new release is kept as a draft until its files are uploaded. Network contribution tests use mocks and never create real forks, commits or pull requests.
 
 The validation rules match `parseObjectDocumentation` in the main editor: 1–1000 object entries, eight setting slots, 16-bit setting values (signed where declared), valid choices and min/max bounds, and consistent documented status. Duplicate JSON keys and invalid JSON numbers are rejected rather than silently discarded.
