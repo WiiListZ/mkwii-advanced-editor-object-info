@@ -2,6 +2,7 @@
 
 import copy
 import json
+import tkinter as tk
 import webbrowser
 
 import customtkinter as ctk
@@ -9,7 +10,9 @@ import customtkinter as ctk
 from . import REPO_URL, docformat
 from . import merge as merging
 from .app import BG, BORDER, CARD, DANGER, FAINT, MUTED, SUCCESS, TEXT, WARNING, button, card, entry, font, label, textbox
-from .github import WEB_EDIT_URL, GitHubError, propose, snapshot
+from .github import WEB_EDIT_URL, GitHubError, cli_account, propose, snapshot
+from .contribution import format_proposal
+from .validation import validate_document
 
 
 def position(window, width, height):
@@ -140,6 +143,8 @@ class ProposeDialog(ctk.CTkToplevel):
         self.latest = None
         self.busy = False
         self.submitted = False
+        self.connected_login = None
+        self.auth_checking = True
         self.protocol("WM_DELETE_WINDOW", self.close)
 
         scroll = ctk.CTkScrollableFrame(self, fg_color=BG)
@@ -153,36 +158,60 @@ class ProposeDialog(ctk.CTkToplevel):
         self.diff_button.pack(anchor="w", padx=8, pady=(0, 10))
         form = card(scroll)
         form.pack(fill="x", padx=8, pady=6)
-        label(form, "Pull request title", 12).pack(anchor="w", padx=14, pady=(12, 4))
+        label(form, "Standard pull request title (generated from the file changes)", 12).pack(anchor="w", padx=14, pady=(12, 4))
         self.title_entry = entry(form)
+        self.title_entry.configure(state="disabled")
         self.title_entry.pack(fill="x", padx=14)
-        label(form, "What changed and how you verified it (game test, source, link…)", 12).pack(anchor="w", padx=14, pady=(8, 4))
+        label(form, "Evidence / notes (optional: game test, source, link…)", 12).pack(anchor="w", padx=14, pady=(8, 4))
         self.body = textbox(form, 95)
         self.body.pack(fill="x", padx=14, pady=(0, 12))
 
-        browser = card(scroll)
-        browser.pack(fill="x", padx=8, pady=6)
-        label(browser, "In your browser", 14, TEXT, "bold").pack(anchor="w", padx=14, pady=(12, 2))
-        label(browser, "Copy the reviewed JSON, paste over data/objects.json in GitHub's editor, then commit to a NEW branch "
-              "and create a pull request. Contributors without write access are offered a fork. Review the diff before submitting.",
-              wraplength=690).pack(anchor="w", padx=14)
-        self.browser_button = button(browser, "Copy JSON and open GitHub", self.browser, width=250, state="disabled")
-        self.browser_button.pack(anchor="w", padx=14, pady=12)
+        self.reviewed = tk.BooleanVar(value=False)
+        self.game_tested = tk.BooleanVar(value=False)
+        for text, variable in [("I reviewed the JSON diff and documentation coverage", self.reviewed),
+                               ("I verified this behaviour in the game", self.game_tested)]:
+            ctk.CTkCheckBox(form, text=text, variable=variable, font=font(12)).pack(anchor="w", padx=14, pady=(0, 10))
+        self.preview_button = button(form, "Preview standard pull request…", self.preview_proposal, width=260, state="disabled")
+        self.preview_button.pack(anchor="w", padx=14, pady=(0, 12))
+        validation = card(scroll)
+        validation.pack(fill="x", padx=8, pady=6)
+        label(validation, "Documentation validator", 14, TEXT, "bold").pack(anchor="w", padx=14, pady=(12, 2))
+        self.validation_label = label(validation, "Waiting for the combined JSON…", 12, MUTED, wraplength=690)
+        self.validation_label.pack(anchor="w", padx=14, pady=(0, 6))
+        button(validation, "Run validator again", self.run_validator, width=180).pack(anchor="w", padx=14, pady=(0, 12))
 
         automatic = card(scroll)
         automatic.pack(fill="x", padx=8, pady=6)
-        label(automatic, "Create the pull request here", 14, TEXT, "bold").pack(anchor="w", padx=14, pady=(12, 2))
-        label(automatic, "Use a classic token with public_repo, or a fine-grained token with Contents and Pull requests write access "
-              "to the required repositories. External contributors may need a classic token to create their fork. The token is never saved.",
+        label(automatic, "Create and open the pull request directly", 14, TEXT, "bold").pack(anchor="w", padx=14, pady=(12, 2))
+        label(automatic, "The program uploads data/objects.json on a new branch, creates the pull request in the standard format and opens it "
+              "on GitHub. Contributors use their own fork. No manual file upload or pasting is needed.",
               wraplength=690).pack(anchor="w", padx=14)
-        self.token = entry(automatic, show="•", placeholder_text="GitHub personal access token")
+        self.account_label = label(automatic, "Checking for a GitHub CLI login…", 12, MUTED, wraplength=690)
+        self.account_label.pack(anchor="w", padx=14, pady=(8, 2))
+        self.token = entry(automatic, show="•", placeholder_text="Optional token (otherwise use the connected GitHub CLI account)")
         self.token.pack(fill="x", padx=14, pady=8)
-        self.go = button(automatic, "Create pull request", self.automatic, primary=True, width=210, state="disabled")
+        label(automatic, "A pasted token overrides the CLI account and is never saved. It needs public_repo, or Contents and Pull requests "
+              "write access to the required repositories.", 11, FAINT, wraplength=690).pack(anchor="w", padx=14)
+        self.go = button(automatic, "Create pull request and open GitHub", self.automatic, primary=True, width=300, state="disabled")
         self.go.pack(anchor="w", padx=14, pady=(4, 12))
+        self.browser_button = button(scroll, "Manual browser fallback: copy JSON…", self.browser, width=300, state="disabled")
+        self.browser_button.pack(anchor="w", padx=8, pady=6)
         self.progress = label(scroll, "", 12, MUTED, wraplength=730)
         self.progress.pack(anchor="w", padx=8, pady=6)
         button(self, "Close", self.close, width=100).pack(anchor="e", padx=20, pady=(0, 12))
         app.background(snapshot, self.compared, self.failed)
+        app.background(cli_account, self.connected, self.not_connected)
+
+    def connected(self, login):
+        if self.alive():
+            self.auth_checking = False
+            self.connected_login = login
+            self.account_label.configure(text=f"Connected GitHub CLI account: {login}", text_color=SUCCESS)
+
+    def not_connected(self, message):
+        if self.alive():
+            self.auth_checking = False
+            self.account_label.configure(text=message, text_color=WARNING)
 
     def alive(self):
         return bool(self.winfo_exists())
@@ -192,7 +221,9 @@ class ProposeDialog(ctk.CTkToplevel):
             self.progress.configure(text="Wait for the GitHub request to finish before closing.", text_color=WARNING)
         else:
             self.token.delete(0, "end")
+            self.grab_release()
             self.destroy()
+            self.app.focus_set()
 
     def failed(self, message):
         if self.alive():
@@ -214,22 +245,46 @@ class ProposeDialog(ctk.CTkToplevel):
     def ready(self, document):
         if not self.alive():
             return
-        try:
-            docformat.parse(document)
-        except ValueError as error:
-            self.failed(f"The combined document needs a correction in the editor: {error}")
-            return
         self.prepared = copy.deepcopy(document)
+        if not self.run_validator():
+            self.changes.configure(text="Correct the reported problems in the editor before proposing this document.", text_color=DANGER)
+            return
         changes = merging.changes(self.latest.document, document)
         names = [key for keys in changes.values() for key in keys]
         if not names:
             self.changes.configure(text="No changes to propose: GitHub already contains this documentation.", text_color=WARNING)
             return
         self.changes.configure(text=" · ".join(f"{len(keys)} {kind}" for kind, keys in changes.items()) + "\n" + ", ".join(names[:12]), text_color=TEXT)
-        if not self.title_entry.get().strip():
-            self.title_entry.insert(0, f"Object documentation: {', '.join(names[:3])}" + ("…" if len(names) > 3 else ""))
-        for control in (self.diff_button, self.browser_button, self.go):
+        proposal = format_proposal(self.latest.document, document)
+        self.title_entry.configure(state="normal")
+        self.title_entry.delete(0, "end")
+        self.title_entry.insert(0, proposal.title)
+        self.title_entry.configure(state="disabled")
+        for control in (self.diff_button, self.preview_button, self.browser_button, self.go):
             control.configure(state="normal")
+
+    def run_validator(self):
+        if self.prepared is None:
+            return False
+        report = validate_document(self.prepared)
+        text = report.summary
+        if report.errors:
+            text += "\n" + "\n".join(report.errors[:8])
+        self.validation_label.configure(text=text, text_color=SUCCESS if report.valid else DANGER)
+        if not report.valid:
+            for control in (self.go, self.browser_button, self.preview_button):
+                control.configure(state="disabled")
+        return report.valid
+
+    def proposal(self):
+        return format_proposal(self.latest.document, self.prepared, self.body.get("1.0", "end").strip(),
+                               self.latest.commit, self.reviewed.get(), self.game_tested.get())
+
+    def preview_proposal(self):
+        if self.prepared is not None:
+            proposal = self.proposal()
+            dialog = TextDialog(self, "Standard pull request", proposal.title + "\n\n" + proposal.body)
+            dialog.after(100, dialog.grab_set)
 
     def show_diff(self):
         if self.prepared is not None:
@@ -238,6 +293,8 @@ class ProposeDialog(ctk.CTkToplevel):
 
     def browser(self):
         if self.prepared is None or self.busy:
+            return
+        if not self.run_validator():
             return
         self.clipboard_clear()
         self.clipboard_append(docformat.dumps(self.prepared))
@@ -248,15 +305,20 @@ class ProposeDialog(ctk.CTkToplevel):
     def automatic(self):
         if self.prepared is None or self.busy or self.submitted:
             return
-        token, title, body = self.token.get().strip(), self.title_entry.get().strip(), self.body.get("1.0", "end").strip()
-        if not token or not title or not body:
-            self.progress.configure(text="Enter a token, a title, and a description with your verification or sources first.", text_color=WARNING)
+        if not self.run_validator():
+            return
+        token, evidence = self.token.get().strip(), self.body.get("1.0", "end").strip()
+        if not token and not self.connected_login:
+            message = "Wait for the GitHub account check to finish." if self.auth_checking else "Paste a GitHub token, or sign in with GitHub CLI and reopen this window."
+            self.progress.configure(text=message, text_color=WARNING)
             return
         self.busy = True
         self.go.configure(state="disabled")
         self.browser_button.configure(state="disabled")
         self.token.delete(0, "end")
         text, expected = docformat.dumps(self.prepared), self.latest.commit
+        reviewed, game_tested = self.reviewed.get(), self.game_tested.get()
+        expected_login = None if token else self.connected_login
 
         def say(message):
             self.app.on_ui(lambda: self.progress.configure(text=message, text_color=MUTED) if self.alive() else None)
@@ -274,5 +336,5 @@ class ProposeDialog(ctk.CTkToplevel):
                 self.progress.configure(text=message, text_color=DANGER)
                 # Reopen the preview after any failure; a branch may already have been written.
                 self.changes.configure(text="Close and reopen this preview before retrying. If a branch was saved, use the comparison link above.", text_color=WARNING)
-        self.app.background(lambda: propose(token, text, title, body + "\n\n_Proposed with Object Info Editor._", say,
-                                           expected_commit=expected), done, failed)
+        self.app.background(lambda: propose(token, text, evidence, say, expected_commit=expected,
+                                           reviewed=reviewed, game_tested=game_tested, expected_login=expected_login), done, failed)

@@ -10,7 +10,8 @@ from unittest.mock import patch
 from objinfo import docformat
 from objinfo.app import App
 from objinfo.dialogs import ProposeDialog
-from objinfo.github import GitHubError, Snapshot
+from objinfo.github import GitHubError, Snapshot, snapshot
+from objinfo.local_editor import LocalDocumentation
 
 BASE = {"version": 1, "objects": {"box": {"description": "Before", "status": "partial", "documented": 50}}}
 
@@ -139,7 +140,7 @@ class Form(unittest.TestCase):
 
     def test_proposal_previews_remote_changes_and_disables_empty_submission(self):
         def immediate(work, done, failed):
-            done(Snapshot(copy.deepcopy(BASE), "reviewed", "blob"))
+            done(Snapshot(copy.deepcopy(BASE), "reviewed", "blob") if work is snapshot else "Contributor")
         with patch.object(self.app, "background", side_effect=immediate):
             dialog = ProposeDialog(self.app)
             self.assertEqual(dialog.go.cget("state"), "disabled")
@@ -151,4 +152,48 @@ class Form(unittest.TestCase):
             self.assertEqual(dialog.go.cget("state"), "normal")
             self.assertEqual(dialog.latest.commit, "reviewed")
             self.assertEqual(dialog.prepared["objects"]["box"]["notes"], "Verified in game")
+            dialog.destroy()
+
+    def test_direct_proposal_uses_connected_account_and_opens_the_created_pr(self):
+        self.app.fields["notes"].insert("end", "Verified change")
+        self.app.commit_form()
+        def immediate(work, done, failed):
+            done(Snapshot(copy.deepcopy(BASE), "reviewed", "blob") if work is snapshot else work())
+        with patch("objinfo.dialogs.cli_account", return_value="Contributor"), patch.object(self.app, "background", side_effect=immediate), \
+                patch("objinfo.dialogs.propose", return_value="https://github.com/example/pull/1") as propose, patch("objinfo.dialogs.webbrowser.open") as browser:
+            dialog = ProposeDialog(self.app)
+            dialog.automatic()
+            self.assertTrue(dialog.submitted)
+            self.assertEqual(propose.call_args.kwargs["expected_login"], "Contributor")
+            self.assertFalse(propose.call_args.kwargs["game_tested"])
+            browser.assert_called_once_with("https://github.com/example/pull/1")
+            dialog.destroy()
+
+    def test_import_editor_settings_loads_a_copy_and_retains_the_baseline(self):
+        document = copy.deepcopy(BASE)
+        document["objects"]["box"]["notes"] = "From editor"
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "settings.json"
+            path.write_text('{"preserve":"all settings"}', encoding="utf-8")
+            source = LocalDocumentation(document, BASE, path, "Editor documentation")
+            self.assertTrue(self.app.import_editor_documentation(source))
+            self.assertEqual(self.app.doc, document)
+            self.assertEqual(self.app.baseline, BASE)
+            self.assertIsNone(self.app.path)
+            self.assertEqual(path.read_text(encoding="utf-8"), '{"preserve":"all settings"}')
+
+    def test_proposal_validator_runs_automatically_and_blocks_invalid_submission(self):
+        self.app.fields["notes"].insert("end", "Changed")
+        self.app.commit_form()
+        def immediate(work, done, failed):
+            done(Snapshot(copy.deepcopy(BASE), "reviewed", "blob") if work is snapshot else "Contributor")
+        with patch.object(self.app, "background", side_effect=immediate), patch("objinfo.dialogs.propose") as propose:
+            dialog = ProposeDialog(self.app)
+            self.assertIn("Validator passed", dialog.validation_label.cget("text"))
+            dialog.prepared["objects"]["box"]["documented"] = 101
+            dialog.automatic()
+            self.assertIn("Validator failed", dialog.validation_label.cget("text"))
+            self.assertIn("box.documented", dialog.validation_label.cget("text"))
+            self.assertEqual(dialog.go.cget("state"), "disabled")
+            propose.assert_not_called()
             dialog.destroy()

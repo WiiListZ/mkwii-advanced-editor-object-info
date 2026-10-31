@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import base64
 import json
+import shutil
+import subprocess
 import time
 import urllib.error
 import urllib.parse
@@ -14,6 +16,8 @@ from typing import Any, Callable
 
 from . import DATA_PATH, REPO_NAME, REPO_OWNER, REPO_URL
 from . import docformat
+from .contribution import format_proposal
+from .validation import validate_document
 
 API = "https://api.github.com"
 UPSTREAM = f"/repos/{REPO_OWNER}/{REPO_NAME}"
@@ -92,23 +96,45 @@ def download_latest(timeout: float = 15) -> str:
     return docformat.dumps(snapshot(Client(timeout=timeout)).document)
 
 
-def propose(token: str, text: str, title: str, body: str, progress: Callable[[str], None] = lambda _: None,
-            expected_commit: str | None = None) -> str:
+def cli_token() -> str:
+    """Use the person's own GitHub CLI login; never bundle or save credentials."""
+    command = shutil.which("gh")
+    if not command:
+        raise GitHubError("To create the pull request directly, paste a GitHub token below or sign in with GitHub CLI on this computer.")
+    try:
+        result = subprocess.run([command, "auth", "token", "--hostname", "github.com"], capture_output=True,
+                                text=True, timeout=10, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise GitHubError("Could not read the GitHub CLI login. Paste a GitHub token to continue.") from error
+    if result.returncode or not result.stdout.strip():
+        raise GitHubError("GitHub CLI is not signed in. Paste a GitHub token to create the pull request.")
+    return result.stdout.strip()
+
+
+def cli_account() -> str:
+    return Client(cli_token()).call("GET", "/user")["login"]
+
+
+def propose(token: str, text: str, evidence: str = "", progress: Callable[[str], None] = lambda _: None,
+            expected_commit: str | None = None, reviewed: bool = False, game_tested: bool = False,
+            expected_login: str | None = None) -> str:
     """Create a PR from the upstream commit that was reviewed. Never write to main."""
-    if not token.strip():
-        raise GitHubError("Paste a GitHub token first.")
-    if not title.strip():
-        raise GitHubError("Give the pull request a title.")
     document = docformat.loads(text)
-    docformat.parse(document)
-    gh = Client(token)
+    report = validate_document(document)
+    if not report.valid:
+        raise ValueError("\n".join(report.errors))
+    gh = Client(token.strip() or cli_token())
     progress("Checking the token and the reviewed version…")
     login = gh.call("GET", "/user")["login"]
+    if expected_login and login.lower() != expected_login.lower():
+        raise GitHubError("The connected GitHub account changed. Close and reopen the proposal to review the account before submitting.")
     latest = snapshot(gh)
     if expected_commit is not None and latest.commit != expected_commit:
         raise GitHubError("The documentation changed on GitHub since this preview. Close this window and review the proposal again; your edits are still in the editor.")
-    if document == latest.document:
-        raise GitHubError("There are no changes to propose.")
+    try:
+        proposal = format_proposal(latest.document, document, evidence, latest.commit, reviewed, game_tested)
+    except ValueError as error:
+        raise GitHubError(str(error)) from error
 
     if login.lower() == REPO_OWNER.lower():
         repo, owner = UPSTREAM, login
@@ -129,15 +155,16 @@ def propose(token: str, text: str, title: str, body: str, progress: Callable[[st
     gh.call("POST", f"{repo}/git/refs", {"ref": f"refs/heads/{branch}", "sha": latest.commit})
     progress("Saving the reviewed changes…")
     gh.call("PUT", f"{repo}/contents/{DATA_PATH}", {
-        "message": title.strip(), "content": base64.b64encode(docformat.dumps(document).encode("utf-8")).decode("ascii"),
+        "message": proposal.title, "content": base64.b64encode(docformat.dumps(document).encode("utf-8")).decode("ascii"),
         "branch": branch, **({"sha": latest.file_sha} if latest.file_sha else {}),
     })
     progress("Opening the pull request…")
     head = branch if repo == UPSTREAM else f"{owner}:{branch}"
     try:
-        pull = gh.call("POST", f"{UPSTREAM}/pulls", {"title": title.strip(), "head": head, "base": "main", "body": body,
+        pull = gh.call("POST", f"{UPSTREAM}/pulls", {"title": proposal.title, "head": head, "base": "main", "body": proposal.body,
                                                   "maintainer_can_modify": True})
     except GitHubError as error:
-        compare = f"{REPO_URL}/compare/main...{urllib.parse.quote(head, safe=':')}?expand=1"
+        query = urllib.parse.urlencode({"expand": "1", "title": proposal.title, "body": proposal.body})
+        compare = f"{REPO_URL}/compare/main...{urllib.parse.quote(head, safe=':')}?{query}"
         raise GitHubError(f"The changes were saved on branch {branch}, but the pull request could not be opened. Finish it here: {compare}\n\n{error}") from error
     return pull["html_url"]

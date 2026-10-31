@@ -64,7 +64,7 @@ jobs:
 
           Download **ObjectInfoEditor.exe** below and open it. Python is included; no installation is needed.
 
-          Includes object documentation editing, validation, conflict-aware sync, documentation update notifications and pull request preparation.
+          Includes object documentation editing, local editor JSON import, validation, conflict-aware sync, documentation update notifications and direct pull request creation with a standard format.
 
           Commit: $env:GITHUB_SHA
 

@@ -6,12 +6,17 @@ permissions:
   contents: read
 jobs:
   validate:
+    name: Validate proposed object documentation
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
       - run: pip install -r requirements.txt
-      - run: python scripts/validate.py
-      - run: python -m unittest discover -v
+      - name: Validate data/objects.json with the desktop validator
+        run: python scripts/validate.py
+      - name: Check validator, proposal and import behaviour
+        if: always()
+        run: python -m unittest discover -v

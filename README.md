@@ -29,6 +29,8 @@ The source version starts with the project's `data/objects.json`. You can also p
 4. Use **Preview object / JSON…** to see the description, setting guidance and JSON. Validation problems appear in red; invalid contributions cannot be proposed.
 5. Save. **Undo / Redo** also restore object creation, removal, renaming and synchronization. Shortcuts: `Ctrl+S`, `Ctrl+O`, `Ctrl+F`, `Ctrl+Z`, `Ctrl+Y`.
 
+**Open editor JSON…** imports the documentation in use by MKWii Advanced Editor on this computer. It checks `MKWII_SETTINGS_DIR` and the editor's usual settings directories (including `%APPDATA%\MKWiiAdvancedEditor\settings.json`), preferring custom documentation over the cached default. Documentation embedded in settings is opened as a copy with its original baseline; saving it asks for a separate JSON file and preserves the editor's settings. If no local documentation is available, choose an exported documentation JSON or `settings.json` manually.
+
 `status` is `documented`, `partial` or `unknown`. `documented` is an integer percentage, 0–100. A documented object needs 100%; leave status/percentage empty to use the main editor's estimate. Use English for shared documentation and identify sources or game tests in the pull request.
 
 ## Know whether you are up to date
@@ -47,8 +49,15 @@ The hidden companion file `.objects.json.objinfo-base.json` records the version 
 
 Choose **Propose on GitHub…**. The program compares a snapshot of your work with the latest `main`, combines independent changes, asks about conflicts and shows the exact JSON diff. Existing contributions from other people are preserved.
 
-- **In your browser:** copy the reviewed JSON and open GitHub's editor. Paste over the file, choose **a new branch**, commit and create a pull request. GitHub offers a fork for contributors without write access. Check the final diff before submitting; if `main` changed while the browser was open, reopen the proposal preview first. The title and evidence can be copied from the proposal form.
-- **In the program:** provide a title, evidence/description and a personal access token. A classic `public_repo` token works for public repositories. A fine-grained token needs Contents and Pull requests write permission on the relevant repositories; GitHub's fork restrictions may require an external contributor to use a classic token or the browser route. The token is used in memory and never written to disk. The program creates a separate branch (and a fork for other contributors), commits the reviewed file and opens a pull request. It never writes directly to `main` or merges the PR.
+The primary **Create pull request and open GitHub** button commits the file on a new branch, creates the pull request and opens the resulting PR page. No file upload or manual pasting is needed. Contributors use their own fork and their own GitHub account. Only `data/objects.json` is changed, formatted as UTF-8 JSON with two-space indentation and a final newline.
+
+The title follows `docs(objects): …`. The body always contains Summary, Objects changed (changed/added/removed), Evidence, Validation and Base revision. Add optional evidence or sources, and tick the review/game-test declarations only if you completed them. **Preview standard pull request…** shows the exact text before submission. Missing evidence is stated explicitly; game tests are never assumed.
+
+The **Documentation validator** panel runs automatically on the combined JSON, reports its object/setting counts or the exact errors, and can be rerun with **Run validator again**. Invalid JSON disables submission. The validator runs again when submitting and before any file is committed. The same `objinfo/validation.py` code is used by `scripts/validate.py` and the **Validate proposed object documentation** GitHub Actions check on pull requests; a failed PR check includes error annotations and a build-summary report. Game testing remains a separate contributor declaration.
+
+If GitHub CLI is installed and signed in, the proposal displays its connected account and uses it when you submit. A pasted personal access token overrides that account; it is used only in memory and never saved. A classic `public_repo` token works for public repositories. A fine-grained token needs Contents and Pull requests write permission on the relevant repositories; GitHub's fork restrictions may require an external contributor to use a classic token. The program never writes directly to `main` or merges the PR.
+
+**Manual browser fallback: copy JSON…** remains available if you prefer GitHub's file editor: paste over the file, commit to a new branch and create the PR there. Review the final diff before submitting.
 
 If upstream changes after the preview, automatic submission stops and asks you to review again. If the commit succeeds but creating the pull request fails, the error supplies a comparison URL so you can finish using the existing branch.
 
@@ -61,6 +70,10 @@ The shared file is [`data/objects.json`](https://github.com/WiiListZ/mkwii-advan
 ## Editor 1.0.1
 
 Object selection reuses the form controls instead of rebuilding the whole interface. Setting fields are created only when needed, typing updates are grouped after a short pause, and unchanged object lists are kept in place. Save, preview, object switching and submission still commit the current input immediately.
+
+## Editor 1.0.2
+
+Direct pull request creation with a predefined title/body, JSON file formatting, evidence and verification declarations, and support for a connected GitHub CLI account or an optional token. **Open editor JSON…** reads the main editor's local documentation without modifying its settings. The proposal panel and GitHub pull requests run the same shared validator and show its result.
 
 ## Validate and build
 

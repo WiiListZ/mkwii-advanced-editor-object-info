@@ -25,6 +25,7 @@ from . import docformat
 from .github import snapshot
 from . import merge as merging
 from .storage import read_baseline, save_document
+from .local_editor import find_local_documentation, read_local_documentation
 
 # ---- Look ---------------------------------------------------------------------------------------
 
@@ -307,6 +308,7 @@ class App(ctk.CTk):
         self.sync_button = button(top, "Sync from GitHub", self.download, width=140)
         self.sync_button.pack(side="right", padx=(6, 0))
         button(top, "Open…", self.open_file, width=80).pack(side="right", padx=(6, 0))
+        button(top, "Open editor JSON…", self.open_editor_json, width=155).pack(side="right", padx=(6, 0))
 
         remote = card(self)
         remote.pack(fill="x", padx=18, pady=(0, 10))
@@ -428,6 +430,42 @@ class App(ctk.CTk):
         name = filedialog.askopenfilename(title="Open an object documentation", filetypes=[("JSON", "*.json"), ("All files", "*.*")])
         if name:
             self.load_path(Path(name))
+
+    def open_editor_json(self):
+        def done(source):
+            if source is None:
+                name = filedialog.askopenfilename(title="Choose an exported documentation JSON or MKWii Advanced Editor settings.json",
+                                                  filetypes=[("JSON", "*.json"), ("All files", "*.*")])
+                if not name:
+                    return
+                try:
+                    source = read_local_documentation(Path(name))
+                except (OSError, ValueError) as error:
+                    failed(str(error))
+                    return
+                if source is None:
+                    failed("This file contains no object documentation. Export the documentation from MKWii Advanced Editor, then open that JSON here.")
+                    return
+            self.import_editor_documentation(source)
+
+        def failed(message):
+            messagebox.showerror("Could not open the editor documentation", message, parent=self)
+        self.background(find_local_documentation, done, failed)
+
+    def import_editor_documentation(self, source):
+        if not self.confirm_discard():
+            return False
+        if source.standalone:
+            return self.load_path(source.path)
+        if not self.load_text(docformat.dumps(source.document), None, source.description):
+            return False
+        self.baseline = copy.deepcopy(source.baseline or self.shipped_baseline)
+        self.history = []
+        self.history_index = -1
+        self.capture_history()
+        self.refresh_remote()
+        self.set_status("Opened a copy of the editor's documentation. Save as… keeps a JSON file; the editor's settings are preserved.", SUCCESS)
+        return True
 
     def download(self, ask: bool = True):
         if self.network_busy:
